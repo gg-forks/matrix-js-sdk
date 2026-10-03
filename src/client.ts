@@ -4197,7 +4197,29 @@ export class MatrixClient extends TypedEventEmitter<EmittedEvents, ClientEventHa
             await this.cryptoBackend?.shareRoomHistoryWithUser(roomId, userId);
         }
 
-        return await this.membershipChange(roomId, userId, KnownMembership.Invite, opts.reason);
+        const response = await this.membershipChange(roomId, userId, KnownMembership.Invite, opts.reason);
+
+        // The invite can be acknowledged before its membership event arrives
+        // through /sync. Refresh the member list and dispatch the normal
+        // membership notification so the crypto backend can include the
+        // invited user's devices in the next encrypted message.
+        const room = this.getRoom(roomId);
+        if (room) {
+            await room.refreshMembers();
+            const member = room.getMember(userId);
+            if (member) {
+                const event = new MatrixEvent({
+                    type: "m.room.member",
+                    room_id: roomId,
+                    state_key: userId,
+                    sender: this.getUserId(),
+                    content: { membership: member.membership },
+                });
+                this.emit(RoomMemberEvent.Membership, event, member);
+            }
+        }
+
+        return response;
     }
 
     /**

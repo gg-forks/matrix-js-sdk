@@ -1154,6 +1154,20 @@ export class Room extends ReadReceipt<RoomEmittedEvents, RoomEventHandlerMap> {
     }
 
     /**
+     * Refresh the out-of-band member list after a local membership change.
+     *
+     * A successful /invite changes the server-side membership before the
+     * corresponding event necessarily arrives through /sync. Drop the cached
+     * member list so encryption can discover the invited user's devices.
+     */
+    public async refreshMembers(): Promise<boolean> {
+        await this.clearLoadedMembersIfNeeded();
+        this.membersPromise = undefined;
+        this.currentState.clearOutOfBandMembers();
+        return this.loadMembersIfNeeded();
+    }
+
+    /**
      * Removes the lazily loaded members from storage if needed
      */
     public async clearLoadedMembersIfNeeded(): Promise<void> {
