@@ -1048,12 +1048,10 @@ export class Room extends ReadReceipt<RoomEmittedEvents, RoomEventHandlerMap> {
     }
 
     private async loadMembersFromServer(): Promise<IStateEventWithRoomId[]> {
-        const lastSyncToken = this.client.store.getSyncToken();
         const response = await this.client.members(
             this.roomId,
             undefined,
             KnownMembership.Leave,
-            lastSyncToken ?? undefined,
         );
         return response.chunk;
     }
@@ -1160,8 +1158,8 @@ export class Room extends ReadReceipt<RoomEmittedEvents, RoomEventHandlerMap> {
      * corresponding event necessarily arrives through /sync. Drop the cached
      * member list so encryption can discover the invited user's devices.
      */
-    public async refreshMembers(): Promise<boolean> {
-        await this.clearLoadedMembersIfNeeded();
+    /** @internal */
+    public refreshMembers(): Promise<boolean> {
         this.membersPromise = undefined;
         this.currentState.clearOutOfBandMembers();
         return this.loadMembersIfNeeded();
