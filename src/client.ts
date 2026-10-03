@@ -4386,7 +4386,7 @@ export class MatrixClient extends TypedEventEmitter<EmittedEvents, ClientEventHa
             user_id: userId, // may be undefined e.g. on leave
             reason: reason,
         });
-        void this.refreshCryptoMembership(roomId, userId);
+        void this.refreshCryptoMembership(roomId, userId ?? this.getUserId() ?? undefined);
         return response;
     }
 

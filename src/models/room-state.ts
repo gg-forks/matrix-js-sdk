@@ -799,18 +799,8 @@ export class RoomState extends TypedEventEmitter<EmittedEvents, EventHandlerMap>
         }
         const userId = stateEvent.getStateKey()!;
         const existingMember = this.getMember(userId);
-        // Never replace members received as part of the sync, except when a
-        // fresh invite supersedes a synced leave. This can happen when an
-        // invite is sent before the corresponding state event arrives via
-        // /sync.
-        if (
-            existingMember &&
-            !existingMember.isOutOfBand() &&
-            !(
-                existingMember.membership === KnownMembership.Leave &&
-                stateEvent.getContent().membership === KnownMembership.Invite
-            )
-        ) {
+        // Never replace members received as part of the sync.
+        if (existingMember && !existingMember.isOutOfBand()) {
             return;
         }
 

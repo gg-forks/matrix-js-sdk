@@ -1048,10 +1048,12 @@ export class Room extends ReadReceipt<RoomEmittedEvents, RoomEventHandlerMap> {
     }
 
     private async loadMembersFromServer(): Promise<IStateEventWithRoomId[]> {
+        const lastSyncToken = this.client.store.getSyncToken();
         const response = await this.client.members(
             this.roomId,
             undefined,
             KnownMembership.Leave,
+            lastSyncToken ?? undefined,
         );
         return response.chunk;
     }
