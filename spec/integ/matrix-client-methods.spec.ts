@@ -284,6 +284,46 @@ describe("MatrixClient", function () {
             httpBackend.verifyNoOutstandingExpectation();
         });
 
+        it("refreshes room members after inviting", async () => {
+            const roomId = "!roomId:server";
+            const invitedUserId = "@user:server";
+            const room = new Room(roomId, client, userId);
+            room.addLiveEvents(
+                [
+                    utils.mkMembership({
+                        user: userId,
+                        room: roomId,
+                        mship: KnownMembership.Join,
+                        event: true,
+                    }),
+                ],
+                { addToState: true },
+            );
+            store.storeRoom(room);
+
+            httpBackend
+                .when("POST", `/rooms/${encodeURIComponent(roomId)}/invite`)
+                .respond(200, {});
+            httpBackend
+                .when("GET", new RegExp(`/rooms/${encodeURIComponent(roomId)}/members`))
+                .respond(200, {
+                    chunk: [
+                        utils.mkMembership({
+                            user: invitedUserId,
+                            room: roomId,
+                            mship: KnownMembership.Invite,
+                            event: false,
+                        }),
+                    ],
+                });
+
+            const invitePromise = client.invite(roomId, invitedUserId);
+            await httpBackend.flushAllExpected();
+            await invitePromise;
+
+            expect(room.getMember(invitedUserId)?.membership).toBe(KnownMembership.Invite);
+        });
+
         it("accepts a stringy reason argument", async () => {
             const roomId = "!roomId:server";
             const userId = "@user:server";
