@@ -778,14 +778,14 @@ export class RoomState extends TypedEventEmitter<EmittedEvents, EventHandlerMap>
      * Sets the loaded out-of-band members.
      * @param stateEvents - array of membership state events
      */
-    public setOutOfBandMembers(stateEvents: MatrixEvent[]): void {
+    public setOutOfBandMembers(stateEvents: MatrixEvent[], replaceSyncedMembers = false): void {
         logger.log(`LL: RoomState about to set ${stateEvents.length} OOB members ...`);
         if (this.oobMemberFlags.status !== OobStatus.InProgress) {
             return;
         }
         logger.log(`LL: RoomState put in finished state ...`);
         this.oobMemberFlags.status = OobStatus.Finished;
-        stateEvents.forEach((e) => this.setOutOfBandMember(e));
+        stateEvents.forEach((e) => this.setOutOfBandMember(e, replaceSyncedMembers));
         this.emit(RoomStateEvent.Update, this);
     }
 
@@ -793,14 +793,14 @@ export class RoomState extends TypedEventEmitter<EmittedEvents, EventHandlerMap>
      * Sets a single out of band member, used by both setOutOfBandMembers and clone
      * @param stateEvent - membership state event
      */
-    private setOutOfBandMember(stateEvent: MatrixEvent): void {
+    private setOutOfBandMember(stateEvent: MatrixEvent, replaceSyncedMembers = false): void {
         if (stateEvent.getType() !== EventType.RoomMember) {
             return;
         }
         const userId = stateEvent.getStateKey()!;
         const existingMember = this.getMember(userId);
         // Never replace members received as part of the sync.
-        if (existingMember && !existingMember.isOutOfBand()) {
+        if (existingMember && !existingMember.isOutOfBand() && !replaceSyncedMembers) {
             return;
         }
 

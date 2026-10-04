@@ -1047,18 +1047,18 @@ export class Room extends ReadReceipt<RoomEmittedEvents, RoomEventHandlerMap> {
         }
     }
 
-    private async loadMembersFromServer(): Promise<IStateEventWithRoomId[]> {
+    private async loadMembersFromServer(fullRefresh = false): Promise<IStateEventWithRoomId[]> {
         const lastSyncToken = this.client.store.getSyncToken();
         const response = await this.client.members(
             this.roomId,
             undefined,
             KnownMembership.Leave,
-            lastSyncToken ?? undefined,
+            fullRefresh ? undefined : (lastSyncToken ?? undefined),
         );
         return response.chunk;
     }
 
-    private async loadMembers(): Promise<{ memberEvents: MatrixEvent[]; fromServer: boolean }> {
+    private async loadMembers(fullRefresh = false): Promise<{ memberEvents: MatrixEvent[]; fromServer: boolean }> {
         // were the members loaded from the server?
         let fromServer = false;
         let rawMembersEvents = await this.client.store.getOutOfBandMembers(this.roomId);
@@ -1069,7 +1069,7 @@ export class Room extends ReadReceipt<RoomEmittedEvents, RoomEventHandlerMap> {
         // if set, which will be the result of the first (successful) call.
         if (rawMembersEvents === null || this.hasEncryptionStateEvent()) {
             fromServer = true;
-            rawMembersEvents = await this.loadMembersFromServer();
+            rawMembersEvents = await this.loadMembersFromServer(fullRefresh);
             logger.log(`LL: got ${rawMembersEvents.length} members from server for room ${this.roomId}`);
         }
         const memberEvents = rawMembersEvents.filter(noUnsafeEventProps).map(this.client.getEventMapper());
@@ -1098,8 +1098,8 @@ export class Room extends ReadReceipt<RoomEmittedEvents, RoomEventHandlerMap> {
      * accessing the members on the room will take
      * all members in the room into account
      */
-    public loadMembersIfNeeded(): Promise<boolean> {
-        if (this.membersPromise) {
+    public loadMembersIfNeeded(fullRefresh = false): Promise<boolean> {
+        if (this.membersPromise && !fullRefresh) {
             return this.membersPromise;
         }
 
@@ -1108,9 +1108,9 @@ export class Room extends ReadReceipt<RoomEmittedEvents, RoomEventHandlerMap> {
         // the OOB members
         this.currentState.markOutOfBandMembersStarted();
 
-        const inMemoryUpdate = this.loadMembers()
+        const inMemoryUpdate = this.loadMembers(fullRefresh)
             .then((result) => {
-                this.currentState.setOutOfBandMembers(result.memberEvents);
+                this.currentState.setOutOfBandMembers(result.memberEvents, fullRefresh);
                 // recalculate the room name: it may have been based on members, so may have changed
                 this.recalculate();
                 return result.fromServer;
@@ -1161,10 +1161,11 @@ export class Room extends ReadReceipt<RoomEmittedEvents, RoomEventHandlerMap> {
      * member list so encryption can discover the invited user's devices.
      */
     /** @internal */
-    public refreshMembers(): Promise<boolean> {
+    public async refreshMembers(): Promise<boolean> {
+        await this.membersPromise?.catch(() => undefined);
         this.membersPromise = undefined;
         this.currentState.clearOutOfBandMembers();
-        return this.loadMembersIfNeeded();
+        return this.loadMembersIfNeeded(true);
     }
 
     /**
