@@ -799,9 +799,15 @@ export class RoomState extends TypedEventEmitter<EmittedEvents, EventHandlerMap>
         }
         const userId = stateEvent.getStateKey()!;
         const existingMember = this.getMember(userId);
-        // Never replace members received as part of the sync.
-        if (existingMember && !existingMember.isOutOfBand() && !replaceSyncedMembers) {
-            return;
+        // Never replace members received as part of the sync, unless this is a
+        // full refresh and the server's event is newer. A sync update can
+        // arrive while /members is in flight, and must win over the stale
+        // response.
+        if (existingMember && !existingMember.isOutOfBand()) {
+            if (!replaceSyncedMembers) return;
+
+            const existingEvent = existingMember.events.member;
+            if (existingEvent && existingEvent.getTs() >= stateEvent.getTs()) return;
         }
 
         const member = this.getOrCreateMember(userId, stateEvent);
