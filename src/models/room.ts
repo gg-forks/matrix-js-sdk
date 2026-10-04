@@ -379,6 +379,7 @@ export class Room extends ReadReceipt<RoomEmittedEvents, RoomEventHandlerMap> {
     // flags to stop logspam about missing m.room.create events
     private getTypeWarning = false;
     private membersPromise?: Promise<boolean>;
+    private refreshMembersPromise?: Promise<boolean>;
 
     // XXX: These should be read-only
     /**
@@ -1162,10 +1163,18 @@ export class Room extends ReadReceipt<RoomEmittedEvents, RoomEventHandlerMap> {
      */
     /** @internal */
     public async refreshMembers(): Promise<boolean> {
-        await this.membersPromise?.catch(() => undefined);
-        this.membersPromise = undefined;
-        this.currentState.clearOutOfBandMembers();
-        return this.loadMembersIfNeeded(true);
+        if (!this.refreshMembersPromise) {
+            this.refreshMembersPromise = (async () => {
+                await this.membersPromise?.catch(() => undefined);
+                await this.client.store.clearOutOfBandMembers(this.roomId);
+                this.membersPromise = undefined;
+                this.currentState.clearOutOfBandMembers();
+                return this.loadMembersIfNeeded(true);
+            })().finally(() => {
+                this.refreshMembersPromise = undefined;
+            });
+        }
+        return this.refreshMembersPromise;
     }
 
     /**

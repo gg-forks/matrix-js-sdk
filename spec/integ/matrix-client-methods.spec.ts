@@ -34,6 +34,7 @@ import { type IFilterDefinition } from "../../src/filter";
 import { type ISearchResults } from "../../src/@types/search";
 import { SetPresence } from "../../src/sync";
 import { KnownMembership } from "../../src/@types/membership";
+import { RoomMemberEvent } from "../../src/models/room-member";
 
 describe("MatrixClient", function () {
     const userId = "@alice:localhost";
@@ -318,8 +319,14 @@ describe("MatrixClient", function () {
                 });
 
             const invitePromise = client.invite(roomId, invitedUserId);
+            const membershipEvent = new Promise<void>((resolve) => {
+                room.once(RoomMemberEvent.Membership, (_event, member) => {
+                    if (member.userId === invitedUserId) resolve();
+                });
+            });
             await httpBackend.flushAllExpected();
             await invitePromise;
+            await membershipEvent;
 
             expect(room.getMember(invitedUserId)?.membership).toBe(KnownMembership.Invite);
         });

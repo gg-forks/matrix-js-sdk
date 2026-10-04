@@ -4386,36 +4386,20 @@ export class MatrixClient extends TypedEventEmitter<EmittedEvents, ClientEventHa
             user_id: userId, // may be undefined e.g. on leave
             reason: reason,
         });
-        void this.refreshCryptoMembership(roomId, userId ?? this.getUserId() ?? undefined);
+        if (membership === KnownMembership.Invite) {
+            await this.refreshCryptoMembership(roomId, userId);
+        }
         return response;
     }
 
     /** Refresh crypto state without changing the membership API contract. */
     private async refreshCryptoMembership(roomId: string, userId?: string): Promise<void> {
-        if (!this.cryptoBackend || !userId) return;
+        if (!userId) return;
         const room = this.getRoom(roomId);
         if (!room) return;
 
         try {
             await room.refreshMembers();
-            const member = room.getMember(userId);
-            const onRoomMembership = (
-                this.cryptoBackend as typeof this.cryptoBackend & {
-                    onRoomMembership?: (event: MatrixEvent, member: unknown) => void;
-                }
-            ).onRoomMembership;
-            if (member && onRoomMembership) {
-                onRoomMembership.call(
-                    this.cryptoBackend,
-                    new MatrixEvent({
-                        type: "m.room.member",
-                        room_id: roomId,
-                        state_key: userId,
-                        content: { membership: member.membership },
-                    }),
-                    member,
-                );
-            }
         } catch (error) {
             this.logger.warn("Failed to refresh crypto membership after membership change", error);
         }
