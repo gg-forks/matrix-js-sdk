@@ -1164,7 +1164,7 @@ export class Room extends ReadReceipt<RoomEmittedEvents, RoomEventHandlerMap> {
     /** @internal */
     public async refreshMembers(): Promise<boolean> {
         if (!this.refreshMembersPromise) {
-            this.refreshMembersPromise = (async () => {
+            this.refreshMembersPromise = (async (): Promise<boolean> => {
                 await this.membersPromise?.catch(() => undefined);
                 await this.client.store.clearOutOfBandMembers(this.roomId);
                 this.membersPromise = undefined;

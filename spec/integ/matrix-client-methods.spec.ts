@@ -34,7 +34,7 @@ import { type IFilterDefinition } from "../../src/filter";
 import { type ISearchResults } from "../../src/@types/search";
 import { SetPresence } from "../../src/sync";
 import { KnownMembership } from "../../src/@types/membership";
-import { RoomMemberEvent } from "../../src/models/room-member";
+import { RoomStateEvent } from "../../src/models/room-state";
 
 describe("MatrixClient", function () {
     const userId = "@alice:localhost";
@@ -306,7 +306,7 @@ describe("MatrixClient", function () {
                 .when("POST", `/rooms/${encodeURIComponent(roomId)}/invite`)
                 .respond(200, {});
             httpBackend
-                .when("GET", new RegExp(`/rooms/${encodeURIComponent(roomId)}/members`))
+                .when("GET", `/rooms/${encodeURIComponent(roomId)}/members`)
                 .respond(200, {
                     chunk: [
                         utils.mkMembership({
@@ -320,10 +320,11 @@ describe("MatrixClient", function () {
 
             const invitePromise = client.invite(roomId, invitedUserId);
             const membershipEvent = new Promise<void>((resolve) => {
-                room.once(RoomMemberEvent.Membership, (_event, member) => {
+                room.once(RoomStateEvent.Members, (_event, _state, member) => {
                     if (member.userId === invitedUserId) resolve();
                 });
             });
+            await httpBackend.flush("");
             await httpBackend.flushAllExpected();
             await invitePromise;
             await membershipEvent;
