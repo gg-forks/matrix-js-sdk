@@ -4382,7 +4382,7 @@ export class MatrixClient extends TypedEventEmitter<EmittedEvents, ClientEventHa
             $room_id: roomId,
             $membership: membership,
         });
-        const response = await this.http.authedRequest(Method.Post, path, undefined, {
+        const response = await this.http.authedRequest<EmptyObject>(Method.Post, path, undefined, {
             user_id: userId, // may be undefined e.g. on leave
             reason: reason,
         });
