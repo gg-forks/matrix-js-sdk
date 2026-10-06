@@ -330,6 +330,14 @@ export class LocalIndexedDBStoreBackend implements IIndexedDBBackend {
         );
         const [minStateKey, maxStateKey] = await Promise.all([minStateKeyProm, maxStateKeyProm]);
 
+        // Nothing has ever been persisted for this room, so there is no range
+        // to delete. Bail out here: IDBKeyRange.bound() with undefined bounds
+        // throws, and the degradable wrapper would then tear down the store.
+        if (minStateKey === undefined || maxStateKey === undefined) {
+            logger.log(`LL: Nothing to delete from storage for room ${roomId}`);
+            return;
+        }
+
         const writeTx = this.db!.transaction(["oob_membership_events"], "readwrite");
         const writeStore = writeTx.objectStore("oob_membership_events");
         const membersKeyRange = IDBKeyRange.bound([roomId, minStateKey], [roomId, maxStateKey]);

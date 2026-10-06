@@ -1068,7 +1068,10 @@ export class Room extends ReadReceipt<RoomEmittedEvents, RoomEventHandlerMap> {
         // that this function is only called once (unless loading the members
         // fails), since loadMembersIfNeeded always returns this.membersPromise
         // if set, which will be the result of the first (successful) call.
-        if (rawMembersEvents === null || this.hasEncryptionStateEvent()) {
+        // A full refresh must always hit the server: the cached list may have
+        // been repopulated by a previous load whose detached store write was
+        // still in flight when the cache was cleared.
+        if (fullRefresh || rawMembersEvents === null || this.hasEncryptionStateEvent()) {
             fromServer = true;
             rawMembersEvents = await this.loadMembersFromServer(fullRefresh);
             logger.log(`LL: got ${rawMembersEvents.length} members from server for room ${this.roomId}`);

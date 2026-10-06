@@ -302,21 +302,17 @@ describe("MatrixClient", function () {
             );
             store.storeRoom(room);
 
-            httpBackend
-                .when("POST", `/rooms/${encodeURIComponent(roomId)}/invite`)
-                .respond(200, {});
-            httpBackend
-                .when("GET", `/rooms/${encodeURIComponent(roomId)}/members`)
-                .respond(200, {
-                    chunk: [
-                        utils.mkMembership({
-                            user: invitedUserId,
-                            room: roomId,
-                            mship: KnownMembership.Invite,
-                            event: false,
-                        }),
-                    ],
-                });
+            httpBackend.when("POST", `/rooms/${encodeURIComponent(roomId)}/invite`).respond(200, {});
+            httpBackend.when("GET", `/rooms/${encodeURIComponent(roomId)}/members`).respond(200, {
+                chunk: [
+                    utils.mkMembership({
+                        user: invitedUserId,
+                        room: roomId,
+                        mship: KnownMembership.Invite,
+                        event: false,
+                    }),
+                ],
+            });
 
             const invitePromise = client.invite(roomId, invitedUserId);
             const membershipEvent = new Promise<void>((resolve) => {
@@ -324,7 +320,6 @@ describe("MatrixClient", function () {
                     if (member.userId === invitedUserId) resolve();
                 });
             });
-            await httpBackend.flush("");
             await httpBackend.flushAllExpected();
             await invitePromise;
             await membershipEvent;
