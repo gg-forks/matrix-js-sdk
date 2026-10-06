@@ -757,6 +757,15 @@ export class RoomState extends TypedEventEmitter<EmittedEvents, EventHandlerMap>
     }
 
     /**
+     * Start a full out-of-band member refresh while retaining the current
+     * members until the replacement has been fetched.
+     */
+    public prepareOutOfBandMembersRefresh(): void {
+        this.syncedMembersUpdatedDuringOobLoad.clear();
+        this.oobMemberFlags.status = OobStatus.InProgress;
+    }
+
+    /**
      * Mark this room state as having failed to fetch out-of-band members
      */
     public markOutOfBandMembersFailed(): void {
@@ -795,6 +804,13 @@ export class RoomState extends TypedEventEmitter<EmittedEvents, EventHandlerMap>
         }
         logger.log(`LL: RoomState put in finished state ...`);
         this.oobMemberFlags.status = OobStatus.Finished;
+        if (replaceSyncedMembers) {
+            Object.keys(this.members).forEach((userId) => {
+                if (this.members[userId].isOutOfBand()) {
+                    delete this.members[userId];
+                }
+            });
+        }
         stateEvents.forEach((e) => this.setOutOfBandMember(e, replaceSyncedMembers));
         this.syncedMembersUpdatedDuringOobLoad.clear();
         this.emit(RoomStateEvent.Update, this);

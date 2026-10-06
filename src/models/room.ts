@@ -1171,9 +1171,8 @@ export class Room extends ReadReceipt<RoomEmittedEvents, RoomEventHandlerMap> {
                 // Let an in-flight initial load settle first so we don't race
                 // it: it would otherwise write its (older) results over ours.
                 await this.membersPromise?.catch(() => undefined);
-                await this.client.store.clearOutOfBandMembers(this.roomId);
                 this.membersPromise = undefined;
-                this.currentState.clearOutOfBandMembers();
+                this.currentState.prepareOutOfBandMembersRefresh();
                 return this.loadMembersIfNeeded(true);
             })().finally(() => {
                 this.refreshMembersPromise = undefined;
