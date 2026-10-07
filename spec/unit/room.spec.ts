@@ -2192,6 +2192,24 @@ describe("Room", function () {
             expect(memberA.name).toEqual("User A");
         });
 
+        it("should fetch from the server for a full refresh even when storage has members", async function () {
+            const memberEvent2 = utils.mkMembership({
+                user: userB,
+                mship: KnownMembership.Join,
+                room: roomId,
+                event: true,
+                name: "User B",
+            });
+            const client = createClientMock([memberEvent2], [memberEvent]);
+            const room = new Room(roomId, client as any, null!, { lazyLoadMembers: true });
+
+            await room.loadMembersIfNeeded(true);
+
+            expect(client.members).toHaveBeenCalledOnce();
+            expect(room.getMember(userA)).toBeNull();
+            expect(room.getMember(userB)?.name).toEqual("User B");
+        });
+
         it("should allow retry on error", async function () {
             const client = createClientMock(new Error("server says no"));
             const room = new Room(roomId, client as any, null!, { lazyLoadMembers: true });
