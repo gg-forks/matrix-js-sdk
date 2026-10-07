@@ -385,6 +385,7 @@ export class RoomState extends TypedEventEmitter<EmittedEvents, EventHandlerMap>
 
         // Ugly hack: see above
         this.oobMemberFlags.status = status;
+        copy.syncedMembersUpdatedDuringOobLoad = new Set(this.syncedMembersUpdatedDuringOobLoad);
 
         if (this.summaryInvitedMemberCount !== null) {
             copy.setInvitedMemberCount(this.getInvitedMemberCount());
@@ -805,11 +806,13 @@ export class RoomState extends TypedEventEmitter<EmittedEvents, EventHandlerMap>
         logger.log(`LL: RoomState put in finished state ...`);
         this.oobMemberFlags.status = OobStatus.Finished;
         if (replaceSyncedMembers) {
+            const refreshedUserIds = new Set(stateEvents.map((event) => event.getStateKey()));
             Object.keys(this.members).forEach((userId) => {
-                if (this.members[userId].isOutOfBand()) {
+                if (!refreshedUserIds.has(userId) && !this.syncedMembersUpdatedDuringOobLoad.has(userId)) {
                     this.updateDisplayNameCache(userId, "");
                     delete this.sentinels[userId];
                     delete this.members[userId];
+                    this.events.get(EventType.RoomMember)?.delete(userId);
                     this.joinedMemberCount = null;
                     this.invitedMemberCount = null;
                 }

@@ -381,6 +381,7 @@ export class Room extends ReadReceipt<RoomEmittedEvents, RoomEventHandlerMap> {
     private membersPromise?: Promise<boolean>;
     private membersStorePromise?: Promise<void>;
     private refreshMembersPromise?: Promise<boolean>;
+    private refreshMembersRequested = false;
 
     // XXX: These should be read-only
     /**
@@ -1167,19 +1168,26 @@ export class Room extends ReadReceipt<RoomEmittedEvents, RoomEventHandlerMap> {
      */
     /** @internal */
     public async refreshMembers(): Promise<boolean> {
-        if (!this.refreshMembersPromise) {
-            this.refreshMembersPromise = (async (): Promise<boolean> => {
+        if (this.refreshMembersPromise) {
+            this.refreshMembersRequested = true;
+            return this.refreshMembersPromise;
+        }
+        this.refreshMembersPromise = (async (): Promise<boolean> => {
+            let fromServer = false;
+            do {
+                this.refreshMembersRequested = false;
                 // Let an in-flight initial load settle first so we don't race
                 // it: it would otherwise write its (older) results over ours.
                 await this.membersPromise?.catch(() => undefined);
                 await this.membersStorePromise?.catch(() => undefined);
                 this.membersPromise = undefined;
                 this.currentState.prepareOutOfBandMembersRefresh();
-                return this.loadMembersIfNeeded(true);
-            })().finally(() => {
-                this.refreshMembersPromise = undefined;
-            });
-        }
+                fromServer = await this.loadMembersIfNeeded(true);
+            } while (this.refreshMembersRequested);
+            return fromServer;
+        })().finally(() => {
+            this.refreshMembersPromise = undefined;
+        });
         return this.refreshMembersPromise;
     }
 
@@ -1991,6 +1999,7 @@ export class Room extends ReadReceipt<RoomEmittedEvents, RoomEventHandlerMap> {
      * we should encrypt messages for in this room.
      */
     public async getEncryptionTargetMembers(): Promise<RoomMember[]> {
+        await this.refreshMembersPromise;
         await this.loadMembersIfNeeded();
         let members = this.getMembersWithMembership(KnownMembership.Join);
         if (this.shouldEncryptForInvitedMembers()) {
