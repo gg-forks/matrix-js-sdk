@@ -807,7 +807,11 @@ export class RoomState extends TypedEventEmitter<EmittedEvents, EventHandlerMap>
         if (replaceSyncedMembers) {
             Object.keys(this.members).forEach((userId) => {
                 if (this.members[userId].isOutOfBand()) {
+                    this.updateDisplayNameCache(userId, "");
+                    delete this.sentinels[userId];
                     delete this.members[userId];
+                    this.joinedMemberCount = null;
+                    this.invitedMemberCount = null;
                 }
             });
         }
