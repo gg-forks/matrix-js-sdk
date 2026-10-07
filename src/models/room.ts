@@ -1999,7 +1999,7 @@ export class Room extends ReadReceipt<RoomEmittedEvents, RoomEventHandlerMap> {
      * we should encrypt messages for in this room.
      */
     public async getEncryptionTargetMembers(): Promise<RoomMember[]> {
-        await this.refreshMembersPromise;
+        await this.refreshMembersPromise?.catch(() => undefined);
         await this.loadMembersIfNeeded();
         let members = this.getMembersWithMembership(KnownMembership.Join);
         if (this.shouldEncryptForInvitedMembers()) {
