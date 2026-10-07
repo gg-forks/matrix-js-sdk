@@ -292,20 +292,30 @@ export class LocalIndexedDBStoreBackend implements IIndexedDBBackend {
         logger.log(`LL: backend about to store ${membershipEvents.length} members for ${roomId}`);
         const tx = this.db!.transaction(["oob_membership_events"], "readwrite");
         const store = tx.objectStore("oob_membership_events");
-        membershipEvents.forEach((e) => {
-            store.put(e);
-        });
-        // aside from all the events, we also write a marker object to the store
-        // to mark the fact that OOB members have been written for this room.
-        // It's possible that 0 members need to be written as all where previously know
-        // but we still need to know whether to return null or [] from getOutOfBandMembers
-        // where null means out of band members haven't been stored yet for this room
-        const markerObject = {
-            room_id: roomId,
-            oob_written: true,
-            state_key: 0,
+
+        // A full refresh replaces the cached list. Delete the previous records
+        // in the same transaction so members omitted by /members cannot survive
+        // a restart and be loaded from IndexedDB later.
+        const roomIndex = store.index("room");
+        const cursorRequest = roomIndex.openCursor(IDBKeyRange.only(roomId));
+        cursorRequest.onsuccess = (): void => {
+            const cursor = cursorRequest.result;
+            if (cursor) {
+                cursor.delete();
+                cursor.continue();
+                return;
+            }
+            membershipEvents.forEach((e) => {
+                store.put(e);
+            });
+            // Keep a marker so an empty replacement list is distinguished from
+            // a room whose members have never been persisted.
+            store.put({
+                room_id: roomId,
+                oob_written: true,
+                state_key: 0,
+            });
         };
-        store.put(markerObject);
         await txnAsPromise(tx);
         logger.log(`LL: backend done storing for ${roomId}!`);
     }
@@ -329,6 +339,14 @@ export class LocalIndexedDBStoreBackend implements IIndexedDBBackend {
             (cursor) => (<IDBValidKey[]>cursor?.primaryKey)?.[1],
         );
         const [minStateKey, maxStateKey] = await Promise.all([minStateKeyProm, maxStateKeyProm]);
+
+        // Nothing has ever been persisted for this room, so there is no range
+        // to delete. Bail out here: IDBKeyRange.bound() with undefined bounds
+        // throws, and the degradable wrapper would then tear down the store.
+        if (minStateKey === undefined || maxStateKey === undefined) {
+            logger.log(`LL: Nothing to delete from storage for room ${roomId}`);
+            return;
+        }
 
         const writeTx = this.db!.transaction(["oob_membership_events"], "readwrite");
         const writeStore = writeTx.objectStore("oob_membership_events");

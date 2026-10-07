@@ -159,6 +159,10 @@ export class RoomState extends TypedEventEmitter<EmittedEvents, EventHandlerMap>
     private invitedMemberCount: number | null = null;
     private summaryInvitedMemberCount: number | null = null;
     private modified = -1;
+    // User IDs whose synced membership was updated while an out-of-band member
+    // load was in progress. Such updates are newer than the /members response
+    // and must not be replaced by it, regardless of event timestamps.
+    private syncedMembersUpdatedDuringOobLoad = new Set<string>();
 
     // XXX: Should be read-only
     // The room member dictionary, keyed on the user's ID.
@@ -381,6 +385,7 @@ export class RoomState extends TypedEventEmitter<EmittedEvents, EventHandlerMap>
 
         // Ugly hack: see above
         this.oobMemberFlags.status = status;
+        copy.syncedMembersUpdatedDuringOobLoad = new Set(this.syncedMembersUpdatedDuringOobLoad);
 
         if (this.summaryInvitedMemberCount !== null) {
             copy.setInvitedMemberCount(this.getInvitedMemberCount());
@@ -452,6 +457,9 @@ export class RoomState extends TypedEventEmitter<EmittedEvents, EventHandlerMap>
             if (event.getType() === EventType.RoomMember) {
                 const userId = event.getStateKey()!;
                 processedMemberUserIds.add(userId);
+                if (this.oobMemberFlags.status === OobStatus.InProgress) {
+                    this.syncedMembersUpdatedDuringOobLoad.add(userId);
+                }
                 const newDisplayName = event.getContent().displayname ?? "";
                 const oldDisplayName = this.userIdsToDisplayNames[userId];
 
@@ -745,6 +753,16 @@ export class RoomState extends TypedEventEmitter<EmittedEvents, EventHandlerMap>
         if (this.oobMemberFlags.status !== OobStatus.NotStarted) {
             return;
         }
+        this.syncedMembersUpdatedDuringOobLoad.clear();
+        this.oobMemberFlags.status = OobStatus.InProgress;
+    }
+
+    /**
+     * Start a full out-of-band member refresh while retaining the current
+     * members until the replacement has been fetched.
+     */
+    public prepareOutOfBandMembersRefresh(): void {
+        this.syncedMembersUpdatedDuringOobLoad.clear();
         this.oobMemberFlags.status = OobStatus.InProgress;
     }
 
@@ -755,6 +773,7 @@ export class RoomState extends TypedEventEmitter<EmittedEvents, EventHandlerMap>
         if (this.oobMemberFlags.status !== OobStatus.InProgress) {
             return;
         }
+        this.syncedMembersUpdatedDuringOobLoad.clear();
         this.oobMemberFlags.status = OobStatus.NotStarted;
     }
 
@@ -771,6 +790,7 @@ export class RoomState extends TypedEventEmitter<EmittedEvents, EventHandlerMap>
             }
         });
         logger.log(`LL: RoomState removed ${count} members...`);
+        this.syncedMembersUpdatedDuringOobLoad.clear();
         this.oobMemberFlags.status = OobStatus.NotStarted;
     }
 
@@ -778,14 +798,28 @@ export class RoomState extends TypedEventEmitter<EmittedEvents, EventHandlerMap>
      * Sets the loaded out-of-band members.
      * @param stateEvents - array of membership state events
      */
-    public setOutOfBandMembers(stateEvents: MatrixEvent[]): void {
+    public setOutOfBandMembers(stateEvents: MatrixEvent[], replaceSyncedMembers = false): void {
         logger.log(`LL: RoomState about to set ${stateEvents.length} OOB members ...`);
         if (this.oobMemberFlags.status !== OobStatus.InProgress) {
             return;
         }
         logger.log(`LL: RoomState put in finished state ...`);
         this.oobMemberFlags.status = OobStatus.Finished;
-        stateEvents.forEach((e) => this.setOutOfBandMember(e));
+        if (replaceSyncedMembers) {
+            const refreshedUserIds = new Set(stateEvents.map((event) => event.getStateKey()));
+            Object.keys(this.members).forEach((userId) => {
+                if (!refreshedUserIds.has(userId) && !this.syncedMembersUpdatedDuringOobLoad.has(userId)) {
+                    this.updateDisplayNameCache(userId, "");
+                    delete this.sentinels[userId];
+                    delete this.members[userId];
+                    this.events.get(EventType.RoomMember)?.delete(userId);
+                    this.joinedMemberCount = null;
+                    this.invitedMemberCount = null;
+                }
+            });
+        }
+        stateEvents.forEach((e) => this.setOutOfBandMember(e, replaceSyncedMembers));
+        this.syncedMembersUpdatedDuringOobLoad.clear();
         this.emit(RoomStateEvent.Update, this);
     }
 
@@ -793,15 +827,21 @@ export class RoomState extends TypedEventEmitter<EmittedEvents, EventHandlerMap>
      * Sets a single out of band member, used by both setOutOfBandMembers and clone
      * @param stateEvent - membership state event
      */
-    private setOutOfBandMember(stateEvent: MatrixEvent): void {
+    private setOutOfBandMember(stateEvent: MatrixEvent, replaceSyncedMembers = false): void {
         if (stateEvent.getType() !== EventType.RoomMember) {
             return;
         }
         const userId = stateEvent.getStateKey()!;
         const existingMember = this.getMember(userId);
-        // never replace members received as part of the sync
+        // Never replace members received as part of the sync, unless this is a
+        // full refresh and the server's event is newer. A sync update can
+        // arrive while /members is in flight, and must win over the stale
+        // response.
         if (existingMember && !existingMember.isOutOfBand()) {
-            return;
+            if (!replaceSyncedMembers) return;
+            // A sync update that arrived while /members was in flight is newer
+            // than the response, so keep it.
+            if (this.syncedMembersUpdatedDuringOobLoad.has(userId)) return;
         }
 
         const member = this.getOrCreateMember(userId, stateEvent);

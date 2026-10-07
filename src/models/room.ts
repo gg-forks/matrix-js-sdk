@@ -379,6 +379,9 @@ export class Room extends ReadReceipt<RoomEmittedEvents, RoomEventHandlerMap> {
     // flags to stop logspam about missing m.room.create events
     private getTypeWarning = false;
     private membersPromise?: Promise<boolean>;
+    private membersStorePromise?: Promise<void>;
+    private refreshMembersPromise?: Promise<boolean>;
+    private refreshMembersRequested = false;
 
     // XXX: These should be read-only
     /**
@@ -1047,18 +1050,18 @@ export class Room extends ReadReceipt<RoomEmittedEvents, RoomEventHandlerMap> {
         }
     }
 
-    private async loadMembersFromServer(): Promise<IStateEventWithRoomId[]> {
+    private async loadMembersFromServer(fullRefresh = false): Promise<IStateEventWithRoomId[]> {
         const lastSyncToken = this.client.store.getSyncToken();
         const response = await this.client.members(
             this.roomId,
             undefined,
             KnownMembership.Leave,
-            lastSyncToken ?? undefined,
+            fullRefresh ? undefined : (lastSyncToken ?? undefined),
         );
         return response.chunk;
     }
 
-    private async loadMembers(): Promise<{ memberEvents: MatrixEvent[]; fromServer: boolean }> {
+    private async loadMembers(fullRefresh = false): Promise<{ memberEvents: MatrixEvent[]; fromServer: boolean }> {
         // were the members loaded from the server?
         let fromServer = false;
         let rawMembersEvents = await this.client.store.getOutOfBandMembers(this.roomId);
@@ -1067,9 +1070,12 @@ export class Room extends ReadReceipt<RoomEmittedEvents, RoomEventHandlerMap> {
         // that this function is only called once (unless loading the members
         // fails), since loadMembersIfNeeded always returns this.membersPromise
         // if set, which will be the result of the first (successful) call.
-        if (rawMembersEvents === null || this.hasEncryptionStateEvent()) {
+        // A full refresh must always hit the server: the cached list may have
+        // been repopulated by a previous load whose detached store write was
+        // still in flight when the cache was cleared.
+        if (fullRefresh || rawMembersEvents === null || this.hasEncryptionStateEvent()) {
             fromServer = true;
-            rawMembersEvents = await this.loadMembersFromServer();
+            rawMembersEvents = await this.loadMembersFromServer(fullRefresh);
             logger.log(`LL: got ${rawMembersEvents.length} members from server for room ${this.roomId}`);
         }
         const memberEvents = rawMembersEvents.filter(noUnsafeEventProps).map(this.client.getEventMapper());
@@ -1098,8 +1104,8 @@ export class Room extends ReadReceipt<RoomEmittedEvents, RoomEventHandlerMap> {
      * accessing the members on the room will take
      * all members in the room into account
      */
-    public loadMembersIfNeeded(): Promise<boolean> {
-        if (this.membersPromise) {
+    public loadMembersIfNeeded(fullRefresh = false): Promise<boolean> {
+        if (this.membersPromise && !fullRefresh) {
             return this.membersPromise;
         }
 
@@ -1108,9 +1114,9 @@ export class Room extends ReadReceipt<RoomEmittedEvents, RoomEventHandlerMap> {
         // the OOB members
         this.currentState.markOutOfBandMembersStarted();
 
-        const inMemoryUpdate = this.loadMembers()
+        const inMemoryUpdate = this.loadMembers(fullRefresh)
             .then((result) => {
-                this.currentState.setOutOfBandMembers(result.memberEvents);
+                this.currentState.setOutOfBandMembers(result.memberEvents, fullRefresh);
                 // recalculate the room name: it may have been based on members, so may have changed
                 this.recalculate();
                 return result.fromServer;
@@ -1122,7 +1128,7 @@ export class Room extends ReadReceipt<RoomEmittedEvents, RoomEventHandlerMap> {
                 throw err;
             });
         // update members in storage, but don't wait for it
-        inMemoryUpdate
+        this.membersStorePromise = inMemoryUpdate
             .then((fromServer) => {
                 if (fromServer) {
                     const oobMembers = this.currentState
@@ -1151,6 +1157,38 @@ export class Room extends ReadReceipt<RoomEmittedEvents, RoomEventHandlerMap> {
         this.membersPromise = inMemoryUpdate;
 
         return this.membersPromise;
+    }
+
+    /**
+     * Refresh the out-of-band member list after a local membership change.
+     *
+     * A successful /invite changes the server-side membership before the
+     * corresponding event necessarily arrives through /sync. Drop the cached
+     * member list so encryption can discover the invited user's devices.
+     */
+    /** @internal */
+    public async refreshMembers(): Promise<boolean> {
+        if (this.refreshMembersPromise) {
+            this.refreshMembersRequested = true;
+            return this.refreshMembersPromise;
+        }
+        this.refreshMembersPromise = (async (): Promise<boolean> => {
+            let fromServer = false;
+            do {
+                this.refreshMembersRequested = false;
+                // Let an in-flight initial load settle first so we don't race
+                // it: it would otherwise write its (older) results over ours.
+                await this.membersPromise?.catch(() => undefined);
+                await this.membersStorePromise?.catch(() => undefined);
+                this.membersPromise = undefined;
+                this.currentState.prepareOutOfBandMembersRefresh();
+                fromServer = await this.loadMembersIfNeeded(true);
+            } while (this.refreshMembersRequested);
+            return fromServer;
+        })().finally(() => {
+            this.refreshMembersPromise = undefined;
+        });
+        return this.refreshMembersPromise;
     }
 
     /**
@@ -1961,6 +1999,7 @@ export class Room extends ReadReceipt<RoomEmittedEvents, RoomEventHandlerMap> {
      * we should encrypt messages for in this room.
      */
     public async getEncryptionTargetMembers(): Promise<RoomMember[]> {
+        await this.refreshMembersPromise?.catch(() => undefined);
         await this.loadMembersIfNeeded();
         let members = this.getMembersWithMembership(KnownMembership.Join);
         if (this.shouldEncryptForInvitedMembers()) {

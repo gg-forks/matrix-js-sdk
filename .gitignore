@@ -1,5 +1,7 @@
 /_docs
 .DS_Store
+.tmp/
+/pr.*.md
 
 node_modules
 /.npmrc

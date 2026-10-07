@@ -62,6 +62,8 @@ describe("IndexedDBStore", () => {
         expect(await store.getOutOfBandMembers(roomId)).toBe(null);
         await store.setOutOfBandMembers(roomId, [member1]);
         expect(await store.getOutOfBandMembers(roomId)).toHaveLength(1);
+        await store.setOutOfBandMembers(roomId, [member2]);
+        expect(await store.getOutOfBandMembers(roomId)).toEqual([member2]);
 
         // Simulate a broken IDB
         (store.backend as LocalIndexedDBStoreBackend)["db"]!.transaction = (): IDBTransaction => {

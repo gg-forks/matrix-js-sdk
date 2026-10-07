@@ -672,6 +672,29 @@ describe("RoomState", function () {
             expect(memberA?.isOutOfBand()).toEqual(false);
         });
 
+        it("should replace out-of-band members during a full refresh", function () {
+            const oldMemberEvent = utils.mkMembership({
+                user: userLazy,
+                mship: KnownMembership.Join,
+                room: roomId,
+                event: true,
+            });
+            const newMemberEvent = utils.mkMembership({
+                user: userC,
+                mship: KnownMembership.Join,
+                room: roomId,
+                event: true,
+            });
+
+            state.markOutOfBandMembersStarted();
+            state.setOutOfBandMembers([oldMemberEvent]);
+            state.prepareOutOfBandMembersRefresh();
+            state.setOutOfBandMembers([newMemberEvent], true);
+
+            expect(state.getMember(userLazy)).toBeNull();
+            expect(state.getMember(userC)?.isOutOfBand()).toEqual(true);
+        });
+
         it("should emit members when updating a member", function () {
             const doesntExistYetUserId = "@doesntexistyet:hs";
             const oobMemberEvent = utils.mkMembership({

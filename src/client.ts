@@ -4197,7 +4197,7 @@ export class MatrixClient extends TypedEventEmitter<EmittedEvents, ClientEventHa
             await this.cryptoBackend?.shareRoomHistoryWithUser(roomId, userId);
         }
 
-        return await this.membershipChange(roomId, userId, KnownMembership.Invite, opts.reason);
+        return this.membershipChange(roomId, userId, KnownMembership.Invite, opts.reason);
     }
 
     /**
@@ -4371,7 +4371,7 @@ export class MatrixClient extends TypedEventEmitter<EmittedEvents, ClientEventHa
         return this.http.authedRequest(Method.Post, path, undefined, data);
     }
 
-    private membershipChange(
+    private async membershipChange(
         roomId: string,
         userId: string | undefined,
         membership: Membership,
@@ -4382,9 +4382,26 @@ export class MatrixClient extends TypedEventEmitter<EmittedEvents, ClientEventHa
             $room_id: roomId,
             $membership: membership,
         });
-        return this.http.authedRequest(Method.Post, path, undefined, {
+        const response = await this.http.authedRequest<EmptyObject>(Method.Post, path, undefined, {
             user_id: userId, // may be undefined e.g. on leave
             reason: reason,
+        });
+        if (membership === KnownMembership.Invite) {
+            await this.refreshCryptoMembership(roomId, userId);
+        }
+        return response;
+    }
+
+    /**
+     * Refresh crypto state after an invite.
+     */
+    private async refreshCryptoMembership(roomId: string, userId?: string): Promise<void> {
+        if (!userId) return;
+        const room = this.getRoom(roomId);
+        if (!room) return;
+
+        await room.refreshMembers().catch((error) => {
+            this.logger.warn("Failed to refresh crypto membership after membership change", error);
         });
     }
 
