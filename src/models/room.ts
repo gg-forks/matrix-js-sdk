@@ -379,6 +379,7 @@ export class Room extends ReadReceipt<RoomEmittedEvents, RoomEventHandlerMap> {
     // flags to stop logspam about missing m.room.create events
     private getTypeWarning = false;
     private membersPromise?: Promise<boolean>;
+    private membersStorePromise?: Promise<void>;
     private refreshMembersPromise?: Promise<boolean>;
 
     // XXX: These should be read-only
@@ -1126,7 +1127,7 @@ export class Room extends ReadReceipt<RoomEmittedEvents, RoomEventHandlerMap> {
                 throw err;
             });
         // update members in storage, but don't wait for it
-        inMemoryUpdate
+        this.membersStorePromise = inMemoryUpdate
             .then((fromServer) => {
                 if (fromServer) {
                     const oobMembers = this.currentState
@@ -1171,6 +1172,7 @@ export class Room extends ReadReceipt<RoomEmittedEvents, RoomEventHandlerMap> {
                 // Let an in-flight initial load settle first so we don't race
                 // it: it would otherwise write its (older) results over ours.
                 await this.membersPromise?.catch(() => undefined);
+                await this.membersStorePromise?.catch(() => undefined);
                 this.membersPromise = undefined;
                 this.currentState.prepareOutOfBandMembersRefresh();
                 return this.loadMembersIfNeeded(true);

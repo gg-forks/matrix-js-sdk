@@ -4387,28 +4387,20 @@ export class MatrixClient extends TypedEventEmitter<EmittedEvents, ClientEventHa
             reason: reason,
         });
         if (membership === KnownMembership.Invite) {
-            this.refreshCryptoMembership(roomId, userId);
+            await this.refreshCryptoMembership(roomId, userId);
         }
         return response;
     }
 
     /**
-     * Refresh crypto state after an invite, without blocking the caller.
-     *
-     * The refresh issues a /members request, which may be slow or unreachable
-     * (e.g. the room is federated and the peer's server is down). Awaiting it
-     * here would put that request in the invite's critical path and stall
-     * inviteMember for as long as the HTTP timeout, so it is deliberately
-     * fire-and-forget: the membership change reaches the crypto backend via
-     * /sync regardless, and the refresh simply brings the local member cache
-     * forward sooner when the server responds.
+     * Refresh crypto state after an invite.
      */
-    private refreshCryptoMembership(roomId: string, userId?: string): void {
+    private async refreshCryptoMembership(roomId: string, userId?: string): Promise<void> {
         if (!userId) return;
         const room = this.getRoom(roomId);
         if (!room) return;
 
-        room.refreshMembers().catch((error) => {
+        await room.refreshMembers().catch((error) => {
             this.logger.warn("Failed to refresh crypto membership after membership change", error);
         });
     }
